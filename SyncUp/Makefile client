@@ -1,0 +1,15 @@
+# Ce Makefile permet de compiler uniquement la partie client du projet.
+
+# Cible exécutée par défaut lorsque l'on tape la commande "make".
+# Elle compile les différents fichiers sources du client
+# puis génère un exécutable nommé "client".
+
+all:
+	gcc -o client client/main_client.c client/socket_client.c client/ui.c
+
+
+# Supprime l'exécutable généré lors de la compilation.
+# Cette cible permet de nettoyer le répertoire de travail.
+
+clean:
+	rm -f client

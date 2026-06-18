@@ -1,0 +1,15 @@
+# Ce Makefile permet de compiler uniquement la partie serveur du projet.
+
+# Cible exécutée par défaut lorsque l'on tape la commande "make".
+# Elle compile tous les fichiers sources du serveur
+# puis génère un exécutable nommé "server".
+
+all:
+	gcc -o server server/main_server.c server/socket_server.c server/thread_handler.c server/auth.c server/channel_manager.c server/crypto.c server/notification_system.c -lpq -pthread
+
+
+# Supprime l'exécutable généré lors de la compilation.
+# Cette cible permet de nettoyer le répertoire de travail.
+
+clean:
+	rm -f server
