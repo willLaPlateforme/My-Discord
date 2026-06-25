@@ -3,10 +3,12 @@
 # Cible exécutée par défaut lorsque l'on tape la commande "make".
 # Elle compile tous les fichiers sources du serveur
 # puis génère un exécutable nommé "server".
+# Les options -I et -L indiquent à gcc où trouver les fichiers
+# d'en-tête (.h) et la bibliothèque (.lib) de PostgreSQL,
+# car ils ne sont pas dans un dossier connu par défaut.
 
 all:
-	gcc -o server server/main_server.c server/socket_server.c server/thread_handler.c server/auth.c server/channel_manager.c server/crypto.c server/notification_system.c -lpq -pthread
-
+	gcc -I"C:\Program Files\PostgreSQL\18\include" -L"C:\Program Files\PostgreSQL\18\lib" -o server server/main_server.c server/socket_server.c server/thread_handler.c server/auth.c server/channel_manager.c server/crypto.c server/notification_system.c server/db.c -lpq -lpthread
 
 # Supprime l'exécutable généré lors de la compilation.
 # Cette cible permet de nettoyer le répertoire de travail.
