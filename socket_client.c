@@ -7,7 +7,7 @@
 
 #pragma comment(lib, "ws2_32.lib")
 
-#define SERVER_IP "10.10.29.181"
+#define SERVER_IP "Insert_IP"
 #define PORT 8080
 #define MAX_BUFFER 1024
 
