@@ -93,6 +93,9 @@ CREATE TABLE IF NOT EXISTS bans (
     user_id INT REFERENCES users(id),           -- Utilisateur banni
     banned_by INT REFERENCES users(id),         -- Administrateur ayant effectué le ban
     reason TEXT,                                -- Raison du bannissement
+    is_active BOOLEAN DEFAULT TRUE,             -- le ban est-il toujours en vigueur ?
+    unbanned_by INT REFERENCES users(id),       -- qui a débanni (NULL si toujours banni)
+    unbanned_at TIMESTAMP,                      -- quand a eu lieu le déban (NULL si toujours banni)
     created_at TIMESTAMP DEFAULT NOW()          -- Date et heure du bannissement
 );
 
