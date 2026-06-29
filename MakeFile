@@ -1,0 +1,28 @@
+# ═══════════════════════════════════════════════════════════
+#  Makefile — MyDiscord (Windows / MinGW)
+#  Utilisation :
+#    make server   → compile le serveur
+#    make client   → compile le client
+#    make all      → compile les deux
+#    make clean    → supprime les .exe
+# ═══════════════════════════════════════════════════════════
+
+CC      = gcc
+CFLAGS  = -Wall -Wextra -g
+LIBS    = -lws2_32 -lpthread
+
+all: server client
+
+server: main_server.c protocole.h
+	$(CC) $(CFLAGS) -o server.exe main_server.c $(LIBS)
+	@echo "[OK] server.exe compilé"
+
+client: socket_client.c protocole.h
+	$(CC) $(CFLAGS) -o client.exe socket_client.c $(LIBS)
+	@echo "[OK] client.exe compilé"
+
+clean:
+	del /f server.exe client.exe 2>nul || true
+	@echo "[OK] Nettoyé"
+
+.PHONY: all server client clean
