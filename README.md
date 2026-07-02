@@ -1,2 +1,0 @@
-# My-Discord
-Project Discord
