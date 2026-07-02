@@ -1,0 +1,96 @@
+/*
+ * Le fichier style.css définit l'apparence visuelle de l'application SyncUp.
+ * Le thème s'inspire des interfaces de jeux comme Punishing Gray Raven et Arknight :
+ * Le fond sombre, accents néon, la typographie  fine et technique, un contrastes marqués entre zones actives et inactives.
+*/
+
+/* La fenêtre principale : fond très sombre, presque noir,
+ *Pour faire ressortir les accents colorés des autres éléments.
+ */
+.main-window {
+    background-color: #0d0f14;
+}
+
+/*
+ * Le titre principal de l'application (ex: "SyncUp" sur l'écran de login).
+ * Grande taille, couleur néon, lettres espacées pour un effet typographique technique/futuriste.
+ */
+.app-title {
+    font-size: 36px;
+    font-weight: bold;
+    color: #00e5ff;
+    letter-spacing: 4px;
+}
+
+/*
+ * Le sous-titre, plus discret, en gris clair pour ne pas
+ * concurrencer visuellement le titre principal.
+*/
+.app-subtitle {
+    font-size: 13px;
+    color: #8a8f9c;
+    letter-spacing: 1px;
+}
+
+/*
+ * Les champs de saisie (email, mot de passe).
+ * Le fond est légèrement plus clair que la fenêtre, bordure fine, coins très peu arrondis
+ * Pour rester proche de l'esthétique "HUD" anguleuse plutôt qu'un style
+ * Arrondi classique.
+ */
+ .login-entry {
+    background-color: #161922;
+    color: #e8eaf0;
+    border: 1px solid #2a2f3d;
+    border-radius: 2px;
+    padding: 10px 14px;
+    font-size: 14px;
+ }
+
+ /*
+ * Au survol ou en focus, la bordure s'illumine en cyan néon,
+ * Pour indiquer clairement quel champ est actif.
+ */
+ .login-entry:focus {
+    border-color: #00e5ff;
+ }
+
+ /*
+ * Le bouton de connexion: un fond cyan néon saturé,
+ * Un texte sombre pour faire un fort contraste,
+ * Des lettres en majuscules espacées pour un effet de "bouton d'interface tactique".
+ */
+ .login-button {
+    background-color: #00e5ff;
+    color: #0d0f14;
+    font-weight: bold;
+    letter-spacing: 2px;
+    border-radius: 2px;
+    padding: 12px;
+    margin-top: 8px;
+ }
+
+ /*
+ * Au survol, le bouton s'éclaircit légèrement pour donner
+ * Un retour visuel d'interactivité.
+ */
+ .login-button:hover {
+    background-color: #5cf3ff;
+ }
+
+ /*
+ * Quand le bouton est pressé (clic actif), il s'assombrit
+ * légèrement, comme un bouton physique qu'on enfonce.
+ */
+ .login-button:active {
+    background-color: #00b8cc;
+ }
+
+ /*explications rapides sur les choix de couleurs :
+
+#0d0f14 est un noir bleuté très sombre, plus doux pour les yeux qu'un noir pur, et cohérent avec l'esthétique "interface tactique futuriste"
+#00e5ff est un cyan néon vif, la couleur d'accent principale (on peux changer la couleur, facile à ajuster en une seule fois ici)
+border-radius: 2px est volontairement très faible (presque des angles droits),
+afin d'éviter le style "arrondi doux" qu'on voit sur la plupart des apps modernes, et plutôt aller vers des formes plus géométriques/anguleuses typiques de l'esthétique gaming sci-fi
+
+*/
