@@ -1,28 +1,41 @@
-# Ce Makefile permet de compiler les deux parties du projet :
-# le serveur et le client.
+# ═══════════════════════════════════════════════════════════════════════
+#  Makefile — SyncUp  (Windows / MSYS2 UCRT64)
+#  Depuis le dossier SyncUp/ : make, make server, make client, make clean
+# ═══════════════════════════════════════════════════════════════════════
 
-# Cible exécutée par défaut lorsque l'on tape simplement "make".
-# Elle lance la compilation du serveur puis celle du client.
-all:
-	make -f "Makefile server"
-	make -f "Makefile client"
+CC     = gcc
+LIBS_BASE  = -lws2_32 -lpthread -lpq -lssl -lcrypto
 
-# Initialise la base de données.
-# Exécute le script SQL init.sql avec l'utilisateur PostgreSQL "postgres".
-db-init:
-	psql -U postgres -f Database/init.sql
+# Flags GTK4 (via pkg-config)
+GTK_FLAGS = $(shell pkg-config --cflags --libs gtk4)
 
-# Supprime les tables ou les données de la base.
-# Exécute le script SQL drop.sql.
-db-drop:
-	psql -U postgres -f Database/drop.sql
+CFLAGS_SERVER = -Wall -Wextra -g -I"C:/msys64/ucrt64/include"
+CFLAGS_CLIENT = -Wall -Wextra -g $(GTK_FLAGS)
 
-# Réinitialise complètement la base de données.
-# Commence par supprimer son contenu puis la recrée.
-db-reset: db-drop db-init
+SERVER_SRCS = server/main_server.c  \
+              server/commandes.c    \
+              server/moderation.c   \
+              server/channel_req.c  \
+              server/role_manager.c \
+              server/db.c           \
+              server/crypto.c
 
-# Supprime les fichiers générés lors de la compilation
-# pour le serveur et le client (fichiers objets, exécutables, etc.).
+CLIENT_SRCS = client/main.c         \
+              client/socket_client.c \
+              client/ui.c
+
+all: server client
+
+server: $(SERVER_SRCS)
+	$(CC) $(CFLAGS_SERVER) -o server/server.exe $(SERVER_SRCS) $(LIBS_BASE)
+	@echo "[OK] server/server.exe compile"
+
+client: $(CLIENT_SRCS)
+	$(CC) $(CFLAGS_CLIENT) -o client/client.exe $(CLIENT_SRCS) $(LIBS_BASE)
+	@echo "[OK] client/client.exe compile"
+
 clean:
-	make -f "Makefile server" clean
-	make -f "Makefile client" clean
+	del /f server\server.exe client\client.exe 2>nul || true
+	@echo "[OK] Nettoye"
+
+.PHONY: all server client clean

@@ -1,85 +1,239 @@
+/*
+ * socket_client.c — Couche réseau du client SyncUp.
+ *
+ * Ce fichier gère :
+ *   - La connexion au serveur (TCP/socket)
+ *   - L'envoi des commandes du protocole
+ *   - La réception des messages dans un thread séparé
+ *   - L'appel des callbacks UI quand un message arrive
+ *
+ * L'UI (ui.c) appelle les fonctions reseau_*() déclarées dans ui_reseau.h.
+ * Ce fichier appelle les fonctions ui_on_*() pour mettre à jour l'interface.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <gtk/gtk.h>
 
-#pragma comment(lib, "ws2_32.lib")
+#include "protocole.h"
+#include "ui_reseau.h"
 
-#define SERVER_IP "10.10.47.87"
-#define PORT 8080
 #define MAX_BUFFER 1024
 
-SOCKET sock;
+static SOCKET  sock = INVALID_SOCKET;
+static int     reseau_actif = 0;
 
-/* Thread dédié à la réception : tourne en parallèle de la saisie utilisateur,
-   sinon le programme serait bloqué soit en lecture, soit en écriture, jamais les deux */
-void *recevoir_messages(void *arg) {
-    char buffer[MAX_BUFFER];
-    int octets_recus;
+/* ═══════════════════════════════════════════════════════════════════════
+ * ENVOI INTERNE
+ * ═══════════════════════════════════════════════════════════════════════ */
 
-    while ((octets_recus = recv(sock, buffer, MAX_BUFFER - 1, 0)) > 0) {
-        buffer[octets_recus] = '\0';
-        printf("\n%s\n> ", buffer);
-        fflush(stdout);
-    }
-
-    /* Le serveur a fermé la connexion (recv renvoie 0) ou une erreur réseau
-       est survenue (recv renvoie -1) : on ferme proprement notre socket ici
-       aussi, car le main() reste bloqué sur fgets() et ne le ferait jamais */
-    printf("\nConnexion au serveur perdue.\n");
-    closesocket(sock);
-    WSACleanup();
-    exit(0);
+static void envoyer_brut(const char *message) {
+    if (sock == INVALID_SOCKET || !reseau_actif) return;
+    send(sock, message, (int)strlen(message), 0);
 }
 
-int main() {
+/* ═══════════════════════════════════════════════════════════════════════
+ * THREAD DE RÉCEPTION
+ * g_idle_add() permet d'appeler les callbacks UI depuis le thread réseau
+ * de façon thread-safe (GTK ne supporte qu'un seul thread).
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+typedef struct { char auteur[64]; char texte[1024]; int canal_id; } DonneesMessage;
+typedef struct { char texte[256]; } DonneesErreur;
+typedef struct { char nom[64];   } DonneesLogin;
+typedef struct { char liste[1024]; } DonneesListe;
+
+static gboolean cb_message(gpointer data) {
+    DonneesMessage *d = (DonneesMessage *)data;
+    ui_on_message_recu(d->auteur, d->texte, d->canal_id);
+    free(d); return G_SOURCE_REMOVE;
+}
+static gboolean cb_erreur(gpointer data) {
+    DonneesErreur *d = (DonneesErreur *)data;
+    ui_on_erreur(d->texte);
+    free(d); return G_SOURCE_REMOVE;
+}
+static gboolean cb_login_ok(gpointer data) {
+    DonneesLogin *d = (DonneesLogin *)data;
+    ui_on_login_ok(d->nom);
+    free(d); return G_SOURCE_REMOVE;
+}
+static gboolean cb_canaux(gpointer data) {
+    DonneesListe *d = (DonneesListe *)data;
+    ui_on_canaux_recus(d->liste);
+    free(d); return G_SOURCE_REMOVE;
+}
+static gboolean cb_utilisateurs(gpointer data) {
+    DonneesListe *d = (DonneesListe *)data;
+    ui_on_utilisateurs_recus(d->liste);
+    free(d); return G_SOURCE_REMOVE;
+}
+
+static void traiter_reponse(char *message) {
+    char commande[TAILLE_MAX_MESSAGE];
+    char args[8][TAILLE_MAX_MESSAGE];
+    int  nb_args = 0;
+
+    if (!parser_commande(message, commande, args, &nb_args)) return;
+
+    if (strcmp(commande, RESP_BROADCAST) == 0 && nb_args >= 3) {
+        DonneesMessage *d = malloc(sizeof(DonneesMessage));
+        strncpy(d->auteur,  args[1], sizeof(d->auteur)  - 1);
+        strncpy(d->texte,   args[2], sizeof(d->texte)   - 1);
+        d->canal_id = atoi(args[0]);
+        g_idle_add(cb_message, d);
+
+    } else if (strcmp(commande, RESP_OK) == 0 && nb_args > 0) {
+        if (strncmp(args[0], "Bienvenue ", 10) == 0) {
+            DonneesLogin *d = malloc(sizeof(DonneesLogin));
+            strncpy(d->nom, args[0] + 10, sizeof(d->nom) - 1);
+            g_idle_add(cb_login_ok, d);
+        }
+
+    } else if (strcmp(commande, RESP_ERROR) == 0 && nb_args > 0) {
+        DonneesErreur *d = malloc(sizeof(DonneesErreur));
+        strncpy(d->texte, args[0], sizeof(d->texte) - 1);
+        g_idle_add(cb_erreur, d);
+
+    } else if (strcmp(commande, RESP_CHANNEL_LIST) == 0 && nb_args > 0) {
+        DonneesListe *d = malloc(sizeof(DonneesListe));
+        strncpy(d->liste, args[0], sizeof(d->liste) - 1);
+        g_idle_add(cb_canaux, d);
+
+    } else if (strcmp(commande, RESP_USER_LIST) == 0 && nb_args > 0) {
+        DonneesListe *d = malloc(sizeof(DonneesListe));
+        strncpy(d->liste, args[0], sizeof(d->liste) - 1);
+        g_idle_add(cb_utilisateurs, d);
+    }
+}
+
+static void *thread_reception(void *arg) {
+    (void)arg;
+    char buffer[MAX_BUFFER];
+    int  octets;
+
+    while (reseau_actif &&
+           (octets = recv(sock, buffer, MAX_BUFFER - 1, 0)) > 0) {
+        buffer[octets] = '\0';
+        traiter_reponse(buffer);
+    }
+
+    reseau_actif = 0;
+    DonneesErreur *d = malloc(sizeof(DonneesErreur));
+    strncpy(d->texte, "Connexion au serveur perdue.", sizeof(d->texte) - 1);
+    g_idle_add(cb_erreur, d);
+    return NULL;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * FONCTIONS PUBLIQUES — appelées par ui.c
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+int reseau_connecter(const char *ip, int port) {
     WSADATA wsa;
-    struct sockaddr_in serveur_addr;
-    char message[MAX_BUFFER];
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 0;
 
-    /* 1. Initialisation Winsock côté client aussi */
-    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
-        printf("Erreur WSAStartup: %d\n", WSAGetLastError());
-        return 1;
-    }
-
-    /* 2. Création du socket */
     sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (sock == INVALID_SOCKET) {
-        printf("Erreur socket(): %d\n", WSAGetLastError());
-        WSACleanup();
-        return 1;
-    }
+    if (sock == INVALID_SOCKET) { WSACleanup(); return 0; }
 
-    /* 3. Adresse du serveur à joindre */
+    struct sockaddr_in serveur_addr;
     serveur_addr.sin_family = AF_INET;
-    serveur_addr.sin_port = htons(PORT);
-    inet_pton(AF_INET, SERVER_IP, &serveur_addr.sin_addr);
+    serveur_addr.sin_port   = htons(port);
+    inet_pton(AF_INET, ip, &serveur_addr.sin_addr);
 
-    /* 4. Connexion au serveur (bloquant jusqu'à succès ou échec) */
-    if (connect(sock, (struct sockaddr *)&serveur_addr, sizeof(serveur_addr)) == SOCKET_ERROR) {
-        printf("Erreur connect(): %d\n", WSAGetLastError());
+    if (connect(sock, (struct sockaddr *)&serveur_addr,
+                sizeof(serveur_addr)) == SOCKET_ERROR) {
+        closesocket(sock); WSACleanup(); return 0;
+    }
+
+    reseau_actif = 1;
+    return 1;
+}
+
+void reseau_demarrer_reception(void) {
+    pthread_t tid;
+    pthread_create(&tid, NULL, thread_reception, NULL);
+    pthread_detach(tid);
+}
+
+void reseau_deconnecter(void) {
+    reseau_actif = 0;
+    if (sock != INVALID_SOCKET) {
+        envoyer_brut(CMD_LOGOUT "\n");
         closesocket(sock);
-        WSACleanup();
-        return 1;
+        sock = INVALID_SOCKET;
     }
-
-    printf("Connecter au serveur MyDiscord.\n> ");
-    fflush(stdout);
-
-    /* 5. Thread séparé pour écouter les messages entrants en continu */
-    pthread_t thread_recep;
-    pthread_create(&thread_recep, NULL, recevoir_messages, NULL);
-
-    /* 6. Boucle principale : lecture clavier et envoi */
-    while (1) {
-        if (fgets(message, MAX_BUFFER, stdin) == NULL) break;
-        send(sock, message, (int)strlen(message), 0);
-    }
-
-    closesocket(sock);
     WSACleanup();
-    return 0;
+}
+
+void reseau_login(const char *email, const char *password) {
+    char msg[MAX_BUFFER];
+    snprintf(msg, sizeof(msg), "%s|%s|%s\n", CMD_LOGIN, email, password);
+    envoyer_brut(msg);
+}
+
+void reseau_register(const char *nom, const char *prenom,
+                     const char *email, const char *password) {
+    char msg[MAX_BUFFER];
+    snprintf(msg, sizeof(msg), "%s|%s|%s|%s|%s\n",
+             CMD_REGISTER, nom, prenom, email, password);
+    envoyer_brut(msg);
+}
+
+void reseau_logout(void) { envoyer_brut(CMD_LOGOUT "\n"); }
+
+void reseau_envoyer_message(int canal_id, const char *texte) {
+    char msg[TAILLE_MAX_MESSAGE * 2];
+    snprintf(msg, sizeof(msg), "%s|%d|%s\n", CMD_SEND_MSG, canal_id, texte);
+    envoyer_brut(msg);
+}
+
+void reseau_envoyer_prive(int dest_id, const char *texte) {
+    char msg[TAILLE_MAX_MESSAGE * 2];
+    snprintf(msg, sizeof(msg), "%s|%d|%s\n", CMD_PRIVATE_MSG, dest_id, texte);
+    envoyer_brut(msg);
+}
+
+void reseau_reagir(int message_id, const char *emoji) {
+    char msg[MAX_BUFFER];
+    snprintf(msg, sizeof(msg), "%s|%d|%s\n", CMD_REACT, message_id, emoji);
+    envoyer_brut(msg);
+}
+
+void reseau_rejoindre_canal(int canal_id) {
+    char msg[MAX_BUFFER];
+    snprintf(msg, sizeof(msg), "%s|%d\n", CMD_JOIN_CHANNEL, canal_id);
+    envoyer_brut(msg);
+}
+
+void reseau_demander_acces(int canal_id) {
+    char msg[MAX_BUFFER];
+    snprintf(msg, sizeof(msg), "%s|%d\n", CMD_REQUEST_CHANNEL, canal_id);
+    envoyer_brut(msg);
+}
+
+void reseau_lister_canaux(void)       { envoyer_brut(CMD_LIST_CHANNELS "\n"); }
+void reseau_lister_utilisateurs(void) { envoyer_brut(CMD_LIST_USERS "\n");    }
+
+void reseau_timeout(int user_id, int canal_id, int duree, const char *raison) {
+    char msg[TAILLE_MAX_MESSAGE * 2];
+    snprintf(msg, sizeof(msg), "%s|%d|%d|%d|%s\n",
+             CMD_TIMEOUT, user_id, canal_id, duree, raison);
+    envoyer_brut(msg);
+}
+
+void reseau_ban(int user_id) {
+    char msg[MAX_BUFFER];
+    snprintf(msg, sizeof(msg), "%s|%d\n", CMD_BAN, user_id);
+    envoyer_brut(msg);
+}
+
+void reseau_changer_role(int user_id, const char *role) {
+    char msg[MAX_BUFFER];
+    snprintf(msg, sizeof(msg), "%s|%d|%s\n", CMD_SET_ROLE, user_id, role);
+    envoyer_brut(msg);
 }
